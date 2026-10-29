@@ -50,4 +50,5 @@ Open http://127.0.0.1:8000/ in your browser.
 Shubham Chauhan
 
 GitHub: https://github.com/thakurshubhamchauhan
+Email: sc694887@gmail.com
 phone_number:9027173541
