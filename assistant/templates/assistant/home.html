@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gnani AI Voice Assistant</title>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 30px 16px;
+            font-family: Arial, sans-serif;
+            background: #f3f4ff;
+            color: #222;
+        }
+
+        .container {
+            max-width: 650px;
+            margin: 40px auto;
+            padding: 30px;
+            background: white;
+            border-radius: 18px;
+            text-align: center;
+            box-shadow: 0 5px 25px #0001;
+        }
+
+        h1 { color: #6741d9; }
+
+        button {
+            padding: 12px 18px;
+            margin: 6px;
+            border: 0;
+            border-radius: 8px;
+            background: #6741d9;
+            color: white;
+            font-size: 15px;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        input[type="file"] {
+            display: block;
+            max-width: 100%;
+            margin: 20px auto;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 120px;
+            box-sizing: border-box;
+            margin-top: 10px;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+
+        #status {
+            margin: 15px 0;
+            color: #18794e;
+            overflow-wrap: anywhere;
+        }
+
+        .error { color: #c62828; }
+
+        .section {
+            margin-top: 25px;
+            padding: 18px;
+            background: #f8f7ff;
+            border-radius: 12px;
+        }
+    </style>
+</head>
+
+<body>
+<main class="container">
+    <h1>🎙️ Gnani AI Voice Assistant</h1>
+
+    <p>Welcome, Shubham!</p>
+    <p>Convert your Hindi speech into text using Gnani AI.</p>
+
+    <section class="section">
+        <h3>🎤 Live Microphone Recording</h3>
+        <p>Allow microphone access, then speak in Hindi.</p>
+
+        <button type="button" id="startBtn">
+            🔴 Start Recording
+        </button>
+
+        <button type="button" id="stopBtn" disabled>
+            ⏹ Stop Recording
+        </button>
+
+        <p id="status" role="status" aria-live="polite">
+            Ready to record.
+        </p>
+
+        <audio id="audioPreview" controls hidden></audio>
+    </section>
+
+    <section class="section">
+        <h3>📁 Upload an Audio File</h3>
+
+        <form id="uploadForm" method="POST"
+              enctype="multipart/form-data">
+            {% csrf_token %}
+
+            <input type="file" id="audioInput"
+                   name="audio" accept="audio/*" required>
+
+            <button type="submit" id="convertBtn">
+                Convert Speech to Text
+            </button>
+        </form>
+    </section>
+
+    {% if transcript %}
+    <section class="section">
+        <h3>📝 Hindi Transcript</h3>
+
+        <textarea id="transcript" readonly>{{ transcript }}</textarea>
+
+        <button type="button" id="copyBtn">
+            Copy Transcript
+        </button>
+    </section>
+    {% endif %}
+
+    {% if error %}
+    <p class="error">{{ error }}</p>
+    {% endif %}
+</main>
+
+<script>
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const audioInput = document.getElementById("audioInput");
+    const statusText = document.getElementById("status");
+    const audioPreview = document.getElementById("audioPreview");
+    const uploadForm = document.getElementById("uploadForm");
+
+    let recorder = null;
+    let chunks = [];
+    let audioUrl = null;
+
+    startBtn.addEventListener("click", async () => {
+        if (!navigator.mediaDevices?.getUserMedia ||
+            !window.MediaRecorder) {
+            statusText.textContent =
+                "Recording is not supported by this browser. Try Chrome.";
+            return;
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: true
+            });
+
+            let mimeType = "";
+            if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+                mimeType = "audio/webm;codecs=opus";
+            } else if (MediaRecorder.isTypeSupported("audio/webm")) {
+                mimeType = "audio/webm";
+            }
+
+            recorder = mimeType
+                ? new MediaRecorder(stream, { mimeType })
+                : new MediaRecorder(stream);
+
+            chunks = [];
+
+            recorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                    chunks.push(event.data);
+                }
+            };
+
+            recorder.onstop = () => {
+                const blob = new Blob(chunks, {
+                    type: recorder.mimeType || "audio/webm"
+                });
+
+                stream.getTracks().forEach(track => track.stop());
+
+                if (blob.size === 0) {
+                    statusText.textContent =
+                        "No audio recorded. Please try again.";
+                    return;
+                }
+
+                if (blob.size > 10 * 1024 * 1024) {
+                    statusText.textContent =
+                        "Recording exceeds the 10 MB limit. Record a shorter clip.";
+                    return;
+                }
+
+                const extension = blob.type.includes("mp4")
+                    ? "mp4" : "webm";
+
+                const file = new File(
+                    [blob],
+                    "hindi-recording." + extension,
+                    { type: blob.type }
+                );
+
+                try {
+                    const transfer = new DataTransfer();
+                    transfer.items.add(file);
+                    audioInput.files = transfer.files;
+                } catch (error) {
+                    statusText.textContent =
+                        "Recording ready, but automatic file selection failed. " +
+                        "Please use the audio upload option.";
+                    return;
+                }
+
+                if (audioUrl) URL.revokeObjectURL(audioUrl);
+                audioUrl = URL.createObjectURL(blob);
+
+                audioPreview.src = audioUrl;
+                audioPreview.hidden = false;
+
+                statusText.textContent =
+                    "Recording ready! Listen to it, then click Convert Speech to Text.";
+            };
+
+            recorder.start();
+
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+            audioInput.required = false;
+            statusText.textContent =
+                "🔴 Recording... Speak in Hindi.";
+        } catch (error) {
+            statusText.textContent =
+                "Microphone access failed. Allow microphone permission and try again.";
+        }
+    });
+
+    stopBtn.addEventListener("click", () => {
+        if (recorder && recorder.state === "recording") {
+            recorder.stop();
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+        }
+    });
+
+    audioInput.addEventListener("change", () => {
+        if (audioInput.files.length > 0) {
+            statusText.textContent =
+                "Selected: " + audioInput.files[0].name;
+        }
+    });
+
+    uploadForm.addEventListener("submit", (event) => {
+        if (!audioInput.files.length) {
+            event.preventDefault();
+            statusText.textContent =
+                "Please record audio or select an audio file first.";
+            return;
+        }
+
+        if (audioInput.files[0].size > 10 * 1024 * 1024) {
+            event.preventDefault();
+            statusText.textContent = "Audio must be smaller than 10 MB.";
+            return;
+        }
+
+        statusText.textContent = "Uploading audio for transcription...";
+        document.getElementById("convertBtn").disabled = true;
+    });
+
+    const copyBtn = document.getElementById("copyBtn");
+    if (copyBtn) {
+        copyBtn.addEventListener("click", async () => {
+            const transcript = document.getElementById("transcript");
+
+            try {
+                await navigator.clipboard.writeText(transcript.value);
+                copyBtn.textContent = "Copied!";
+            } catch (error) {
+                transcript.select();
+                statusText.textContent =
+                    "Select the transcript and copy it manually.";
+            }
+        });
+    }
+</script>
+</body>
+</html>
